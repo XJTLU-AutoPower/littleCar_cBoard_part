@@ -28,17 +28,19 @@ Project File Date:  07/26/2023
 *** Using Compiler 'V5.06 update 7 (build 960)', folder: 'C:\Keil_v5\ARM\ARMCC\Bin'
 Build target 'Big_Windmill'
 compiling main.c...
-../Core/Src/main.c(135): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+../Core/Src/main.c(137): warning:  #1035-D: single-precision operand implicitly converted to double-precision
   	b = 2.09 - a;
-../Core/Src/main.c(153): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+../Core/Src/main.c(159): warning:  #1035-D: single-precision operand implicitly converted to double-precision
   			speed = ((a * (sinf(c*t))) + b) * 9.615 * 38.406;
-../Core/Src/main.c(164): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+../Core/Src/main.c(162): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  				speed = - ((a * (sinf(c*t))) + b) * 9.615 * 38.406;
+../Core/Src/main.c(176): warning:  #1035-D: single-precision operand implicitly converted to double-precision
   			speed = - ((a * (sinf(c*t))) + b) * 9.615 * 38.406;			
-../Core/Src/main.c: 3 warnings, 0 errors
+../Core/Src/main.c: 4 warnings, 0 errors
 linking...
-Program Size: Code=13032 RO-data=500 RW-data=60 ZI-data=2772  
+Program Size: Code=13064 RO-data=500 RW-data=64 ZI-data=2776  
 FromELF: creating hex file...
-"Big_Windmill\Big_Windmill.axf" - 0 Error(s), 3 Warning(s).
+"Big_Windmill\Big_Windmill.axf" - 0 Error(s), 4 Warning(s).
 
 <h2>Software Packages used:</h2>
 
@@ -62,7 +64,7 @@ Package Vendor: Keil
 
    * Component: ARM::CMSIS:CORE:5.6.0
       Include file:  CMSIS\Core\Include\tz_context.h
-Build Time Elapsed:  00:00:02
+Build Time Elapsed:  00:00:03
 </pre>
 </body>
 </html>

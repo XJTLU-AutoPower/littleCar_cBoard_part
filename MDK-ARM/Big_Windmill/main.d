@@ -43,3 +43,4 @@ big_windmill\main.o: ../bsp/boards/bsp_can.h
 big_windmill\main.o: ../application/pid.h
 big_windmill\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdlib.h
 big_windmill\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\math.h
+big_windmill\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdbool.h
