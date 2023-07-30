@@ -31,6 +31,7 @@
 #include "pid.h"
 #include <stdlib.h>
 #include <math.h>
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -53,7 +54,7 @@
 RC_ctrl_t RC_ctrl;
 uint8_t sbus_rx_buffer[18];
 pid_type_def motor_pid[4];
-const fp32 PID[3]={25,0,0};
+const fp32 PID[3]={50,0,2};
 chassis_motor_t motor_chassis[4];
 int set_speed = 0;
 float speed = 0.0;
@@ -63,6 +64,7 @@ float a = 0.0;
 float b = 0.0;
 float c = 0.0;
 static int t = 0;
+bool flag = true;
 float sin1 = 0.0;
 float motor_current = 0;
 /* USER CODE END PV */
@@ -143,6 +145,11 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+		
+		if (speed <= 320 && speed >= -320){
+				flag = !flag;
+		}
+		
 		if (RC_ctrl.rc.s[0]==3 && RC_ctrl.rc.s[1]==2){
 			speed = 384.0;
 
@@ -151,7 +158,7 @@ int main(void)
 		else if (RC_ctrl.rc.s[0]==1 && RC_ctrl.rc.s[1]==2){
 //			set_speed = ((a * (sinf(c*t))) + b) * 38.406;
 			speed = ((a * (sinf(c*t))) + b) * 9.615 * 38.406;
-		
+
 		}
 		
 		else if (RC_ctrl.rc.s[1]==3 && RC_ctrl.rc.s[0]==2){
