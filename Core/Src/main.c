@@ -182,7 +182,9 @@ int main(void)
 			speed = 0.0;
 		}
 		
-		PID_calc(&motor_pid[2],motor_chassis[2].chassis_motor_measure->speed_rpm,speed);	
+		speed = speed*1.335;
+		
+		PID_calc(&motor_pid[2],motor_chassis[2].chassis_motor_measure->speed_rpm,speed);
 		motor_current = motor_pid[2].out;
 		CAN_cmd_chassis(0,0,motor_current,0);
 		HAL_Delay(2);
