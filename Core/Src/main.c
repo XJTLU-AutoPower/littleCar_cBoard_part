@@ -53,20 +53,28 @@
 /* USER CODE BEGIN PV */
 RC_ctrl_t RC_ctrl;
 uint8_t sbus_rx_buffer[18];
-pid_type_def motor_pid[4];
-const fp32 PID[3]={50,0,2};
+pid_type_def motor_pid;
+const fp32 PID[3]={1.2,0,0.00001};
 chassis_motor_t motor_chassis[4];
-int set_speed = 0;
-float speed = 0.0;
+
 int mode_forward = 0;
 int i = 0;
-float a = 0.0;
-float b = 0.0;
-float c = 0.0;
+
 static int t = 0;
 bool flag = true;
 float sin1 = 0.0;
 float motor_current = 0;
+
+uint32_t motorCnt = 0;
+bool motorDir = 0;
+long motorSpeed = 0;
+long pwmSpeed = 0;
+
+
+	uint32_t tim8_ch2_set = 1499;
+	uint32_t tim8_ch3_set = 1499;
+	int tim8_ch3_out = 0;
+	
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -77,14 +85,141 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+typedef struct{
+    uint32_t TX_ID;
+    uint32_t RX_ID;
+} TYPEDEF_CAN_IDs;
+
+CAN_RxHeaderTypeDef CanRx;//接收消息报文信息
+CAN_TxHeaderTypeDef CanTx;//发送消息报文信息
+uint8_t RxData[8] = {0,0,0,0,0,0,0,0};  //接收数据区
+uint8_t TxData[8] = {0,0,0,0,0,0,0,0};  //发送数据区
+uint8_t Flag_Rx = 0;		//接收到数据的标志
+uint32_t pTxMailbox = 0;	//发送邮箱盒子
+
+HAL_StatusTypeDef Can_Config(TYPEDEF_CAN_IDs CAN_ID)
+{
+
+    CAN_FilterTypeDef sFilterConfig;
+
+
+    CanTx.DLC = 8;				//数据长度
+    CanTx.ExtId = 0x00;
+    CanTx.IDE = CAN_ID_STD;		//标准帧模式
+    CanTx.RTR = CAN_RTR_DATA;	//数据帧
+    CanTx.StdId = CAN_ID.TX_ID;			//使用扩展帧时需置零
+    CanTx.TransmitGlobalTime = DISABLE;//时间戳
+
+    CanRx.DLC = 8;				//数据长度
+    CanRx.ExtId = 0x00;
+    CanRx.IDE = CAN_ID_STD;		//标准帧模式
+    CanRx.RTR = CAN_RTR_DATA;	//数据帧
+    CanRx.StdId = CAN_ID.RX_ID;			//使用扩展帧时需置零
+    //CanRx.TransmitGlobalTime = DISABLE;//时间戳
+
+    sFilterConfig.FilterActivation = CAN_FILTER_ENABLE;	//筛选器使能
+    sFilterConfig.FilterBank = 0;						//筛选器0
+    sFilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;//指定将分配给过滤器的FIFO(0或1U)
+
+//    sFilterConfig.FilterIdHigh = (((CanRx.ExtId<<3) | CAN_ID_EXT | CAN_RTR_DATA)&0xFFFF0000)>>16;	//ID的高16位
+//    sFilterConfig.FilterIdLow = ((CanRx.ExtId<<3) | CAN_ID_EXT | CAN_RTR_DATA) & 0xFFFF;	//ID的低16位，只接收扩展帧模式、数据帧
+//    sFilterConfig.FilterMaskIdHigh = 0xFFFF;//FilterMask高低字节数据中位为1时代表必须与ID该位一致，0xFFFFFFFF代表接收筛选必须与ID一致才通过
+//    sFilterConfig.FilterMaskIdLow = 0xFFFF;
+
+    sFilterConfig.FilterIdHigh   =(((uint32_t)CanRx.StdId<<21)&0xffff0000)>>16;
+    sFilterConfig.FilterIdLow  = (((uint32_t)CanRx.StdId<<21)|CAN_ID_STD|CAN_RTR_DATA)&0xffff;
+    sFilterConfig.FilterMaskIdHigh  = 0xFFFF;
+    sFilterConfig.FilterMaskIdLow   = 0xFFFF;
+
+//不设过滤器
+//    sFilterConfig.FilterIdHigh   = 0x0;
+//    sFilterConfig.FilterIdLow    = 0x0;
+//    sFilterConfig.FilterMaskIdHigh  = 0x0;
+//    sFilterConfig.FilterMaskIdLow   = 0x0;
+
+    sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;//掩码模式
+    sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;//32位
+    sFilterConfig.SlaveStartFilterBank = 0;
+
+    if(HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK)
+    {
+        return HAL_ERROR;
+    }
+
+    if(HAL_CAN_Start(&hcan1) != HAL_OK) //启动CAN
+    {
+        return HAL_ERROR;
+    }
+
+    if(HAL_CAN_ActivateNotification(&hcan1,CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)//激活CAN_IT_RX_FIFO0_MSG_PENDING中断
+    {
+        return HAL_ERROR;
+    }
+
+    return HAL_OK;
+}
+
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)//报文接收中断
+{
+    if(HAL_CAN_GetRxMessage(hcan, CAN_FILTER_FIFO0, &CanRx, RxData) == HAL_OK)
+    {
+        Flag_Rx = 1;
+    }
+
+}
+
+
+void HAL_CAN_RxFifo0FullCallback(CAN_HandleTypeDef *hcan)//当接收的Fifo0满了的时候产生该中断
+{
+
+}
+
+
+
+int map(float val, float I_Min, float I_Max, float O_Min, float O_Max) //映射函数
+{
+    return (int)((((val-I_Min)*((O_Max-O_Min)/(I_Max-I_Min)))+O_Min));
+}
+
+
+TYPEDEF_CAN_IDs Switch_Canid(void)   //开关检测
+{
+    TYPEDEF_CAN_IDs keys_canid;
+    keys_canid.TX_ID = NULL;
+    keys_canid.RX_ID = NULL;
+
+        keys_canid.TX_ID = 0x111;
+        keys_canid.RX_ID = 0x112;
+
+    return keys_canid;
+}
+
+void countMotorSpeed()
+{
+		// 编码器轮询
+		motorDir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim1);
+		motorCnt = (uint32_t)(__HAL_TIM_GET_COUNTER(&htim1));//获取定时器的值
+		__HAL_TIM_SET_COUNTER(&htim1, 0);	// 置零
+		if (motorDir == 0) motorSpeed = (long)(motorCnt);
+	  else if (motorCnt == 0) motorSpeed = 0;
+		else motorSpeed = -(long)(65535 - motorCnt);
+		
+		pwmSpeed = map(motorSpeed, -88, 88, -750, 750);
+	
+}
+
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-    if(htim == &htim1)
+    if(htim == &htim4)
     {
       //500ms trigger
-			t++;
+			t ++;
+			countMotorSpeed();
     }
 }
+
 /* USER CODE END 0 */
 
 /**
@@ -93,6 +228,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -119,23 +255,65 @@ int main(void)
   MX_CAN1_Init();
   MX_USART1_UART_Init();
   MX_USART3_UART_Init();
+  MX_TIM5_Init();
+  MX_TIM8_Init();
   MX_TIM1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-	HAL_TIM_Base_Start_IT(&htim1);
+	// 初始化pid
+	PID_init(&motor_pid,PID_POSITION,PID,755,755);
+	//motor_pid.derivative_output_filter_coefficient = 0.99995;
+	//motor_pid.proportion_output_filter_coefficient = 0.99004;
+	motor_pid.out=0;
+	
+	// 定时器1 编码器模式ch1A ch2B
+	//HAL_TIM_Base_Start_IT(&htim1);	
+	HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
+	
+	// 定时器4中断
+	HAL_TIM_Base_Start_IT(&htim4);
+	
 	can_filter_init();
 	HAL_UART_Receive_DMA(&huart3,sbus_rx_buffer,18);
-		
-	for(i=0;i<4;i++)
-	{
-		motor_chassis[i].chassis_motor_measure = get_chassis_motor_measure_point(i);
-		PID_init(&motor_pid[i],PID_POSITION,PID,15000,2000);
-		motor_pid[i].derivative_output_filter_coefficient = 0.99995;
-		motor_pid[i].proportion_output_filter_coefficient = 0.99004;
-		motor_pid[i].out=0;
-	}
-	a = (rand()/RAND_MAX)*0.265 + 0.78;
-	b = 2.09 - a;
-	c = (rand()/RAND_MAX)*0.116 + 1.884;
+	
+	// 蜂鸣器
+		//HAL_TIM_Base_Start_IT(&htim4);
+	//HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
+
+	// 三色led灯
+		//HAL_TIM_Base_Start_IT(&htim5);
+	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3);
+
+	// 舵机ch7 ch8	0 ~ 1999 500 ~ 2500
+		//HAL_TIM_Base_Start_IT(&htim8);
+	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2);	// ch7
+	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_3);	// ch8
+	
+	
+	Can_Config(Switch_Canid()); //引入canid并初始化结构体
+	
+	float psc_tim8_max = 19999.0;
+	
+
+  uint16_t interval_time = 8; //调节连续发包频率的间隔时间
+	
+	// 双通道电机舵机回中
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, 0);
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_3, 0);
+	HAL_Delay(100);
+	
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, 1499);
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_3, 1499);
+	HAL_Delay(3000);
+	
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, 0);
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_3, 0);
+	HAL_Delay(1000);
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, 1499);
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_3, 1499);
+	
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -145,49 +323,52 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		
-		if (speed <= 320 && speed >= -320){
-				flag = !flag;
-		}
-		
-		if (RC_ctrl.rc.s[0]==3 && RC_ctrl.rc.s[1]==2){
-			speed = 384.0;
 
-		}
-		
-		else if (RC_ctrl.rc.s[0]==1 && RC_ctrl.rc.s[1]==2){
-//			set_speed = ((a * (sinf(c*t))) + b) * 38.406;
-			speed = ((a * (sinf(c*t))) + b) * 9.615 * 38.406;
 
-		}
 		
-		else if (RC_ctrl.rc.s[1]==3 && RC_ctrl.rc.s[0]==2){
-			speed = - 384.0;
+		HAL_CAN_GetRxMessage(&hcan1,CAN_RX_FIFO0,&CanRx,RxData);   //试图收包
+
+
+      if(Flag_Rx)
+      {
+				// 亮灯
+		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_1, 50000);
+		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_2, 50000);
+		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_3, 50000);
+				
+				tim8_ch2_set = (int)RxData[0]*(16*16) + (int)RxData[1];
+				// tim8_ch2_set = 0x13*16*16 +0x88;
+				tim8_ch3_set = (int)RxData[2]*(16*16) + (int)RxData[3];
+
+
+
+          for(int i = 0; i < sizeof TxData; i++) {
+              TxData[i] = RxData[i];
+          }
+
+                  Flag_Rx = 0;
+
+      }
 			
-		}
-		
-		else if (RC_ctrl.rc.s[1]==1 && RC_ctrl.rc.s[0]==2){
-//			set_speed = ((a * (sinf(c*t))) + b) * 38.406;
-			speed = - ((a * (sinf(c*t))) + b) * 9.615 * 38.406;			
-		
-		}
-		
-		else if (RC_ctrl.rc.s[0]==2 && RC_ctrl.rc.s[1]==2){
-			//motor_current = 0;
-			speed = 0.0;
+			__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, tim8_ch2_set);
 			
-		}
-		else {
-			//CAN_cmd_chassis(0,0,0,0);
-			speed = 0.0;
-		}
+			tim8_ch3_out = PID_calc(&motor_pid, pwmSpeed + 1499, tim8_ch3_set);
+      __HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_3, tim8_ch3_out + 1500);
+			
+			//__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_3, tim8_ch3_set);
+			
+
+      HAL_CAN_AddTxMessage(&hcan1, &CanTx, TxData, &pTxMailbox); // 发包
+
+      HAL_Delay(interval_time); // 调节发包频率
+			
+			// 暗灯
+		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_1, 500);
+		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_2, 500);
+		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_3, 500);
 		
-		speed = speed*1.335;
+
 		
-		PID_calc(&motor_pid[2],motor_chassis[2].chassis_motor_measure->speed_rpm,speed);
-		motor_current = motor_pid[2].out;
-		CAN_cmd_chassis(0,0,motor_current,0);
-		HAL_Delay(2);
   }
   /* USER CODE END 3 */
 }

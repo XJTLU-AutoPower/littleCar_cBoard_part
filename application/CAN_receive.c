@@ -54,6 +54,7 @@ static uint8_t              chassis_can_send_data[8];
   * @param[in]      hcan:CAN¾ä±úÖ¸Õë
   * @retval         none
   */
+	/*
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
     CAN_RxHeaderTypeDef rx_header;
@@ -84,7 +85,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
         }
     }
 }
-
+*/
 
 
 /**
