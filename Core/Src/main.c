@@ -20,18 +20,19 @@
 #include "main.h"
 #include "can.h"
 #include "dma.h"
+#include "spi.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "bsp_can.h"
 #include "CAN_receive.h"
 #include "pid.h"
 #include <stdlib.h>
 #include <math.h>
 #include <stdbool.h>
+#include "BMI088driver.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -74,13 +75,18 @@ long pwmSpeed = 0;
 	uint32_t tim8_ch2_set = 1499;
 	uint32_t tim8_ch3_set = 1499;
 	int tim8_ch3_out = 0;
-	
+
+fp32 gyro[3];
+fp32 accel[3];
+fp32 temp;
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+void can_filter_init(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -91,12 +97,12 @@ typedef struct{
     uint32_t RX_ID;
 } TYPEDEF_CAN_IDs;
 
-CAN_RxHeaderTypeDef CanRx;//½ÓÊÕÏûÏ¢±¨ÎÄĞÅÏ¢
-CAN_TxHeaderTypeDef CanTx;//·¢ËÍÏûÏ¢±¨ÎÄĞÅÏ¢
-uint8_t RxData[8] = {0,0,0,0,0,0,0,0};  //½ÓÊÕÊı¾İÇø
-uint8_t TxData[8] = {0,0,0,0,0,0,0,0};  //·¢ËÍÊı¾İÇø
-uint8_t Flag_Rx = 0;		//½ÓÊÕµ½Êı¾İµÄ±êÖ¾
-uint32_t pTxMailbox = 0;	//·¢ËÍÓÊÏäºĞ×Ó
+CAN_RxHeaderTypeDef CanRx;//æ¥æ”¶æ¶ˆæ¯æŠ¥æ–‡ä¿¡æ¯
+CAN_TxHeaderTypeDef CanTx;//å‘é€æ¶ˆæ¯æŠ¥æ–‡ä¿¡æ¯
+uint8_t RxData[8] = {0,0,0,0,0,0,0,0};  //æ¥æ”¶æ•°æ®åŒº
+uint8_t TxData[8] = {0,0,0,0,0,0,0,0};  //å‘é€æ•°æ®åŒº
+uint8_t Flag_Rx = 0;		//æ¥æ”¶åˆ°æ•°æ®çš„æ ‡å¿—
+uint32_t pTxMailbox = 0;	//å‘é€é‚®ç®±ç›’å­
 
 HAL_StatusTypeDef Can_Config(TYPEDEF_CAN_IDs CAN_ID)
 {
@@ -104,27 +110,27 @@ HAL_StatusTypeDef Can_Config(TYPEDEF_CAN_IDs CAN_ID)
     CAN_FilterTypeDef sFilterConfig;
 
 
-    CanTx.DLC = 8;				//Êı¾İ³¤¶È
+    CanTx.DLC = 8;				//æ•°æ®é•¿åº¦
     CanTx.ExtId = 0x00;
-    CanTx.IDE = CAN_ID_STD;		//±ê×¼Ö¡Ä£Ê½
-    CanTx.RTR = CAN_RTR_DATA;	//Êı¾İÖ¡
-    CanTx.StdId = CAN_ID.TX_ID;			//Ê¹ÓÃÀ©Õ¹Ö¡Ê±ĞèÖÃÁã
-    CanTx.TransmitGlobalTime = DISABLE;//Ê±¼ä´Á
+    CanTx.IDE = CAN_ID_STD;		//æ ‡å‡†å¸§æ¨¡å¼
+    CanTx.RTR = CAN_RTR_DATA;	//æ•°æ®å¸§
+    CanTx.StdId = CAN_ID.TX_ID;			//ä½¿ç”¨æ‰©å±•å¸§æ—¶éœ€ç½®é›¶
+    CanTx.TransmitGlobalTime = DISABLE;//æ—¶é—´æˆ³
 
-    CanRx.DLC = 8;				//Êı¾İ³¤¶È
+    CanRx.DLC = 8;				//æ•°æ®é•¿åº¦
     CanRx.ExtId = 0x00;
-    CanRx.IDE = CAN_ID_STD;		//±ê×¼Ö¡Ä£Ê½
-    CanRx.RTR = CAN_RTR_DATA;	//Êı¾İÖ¡
-    CanRx.StdId = CAN_ID.RX_ID;			//Ê¹ÓÃÀ©Õ¹Ö¡Ê±ĞèÖÃÁã
-    //CanRx.TransmitGlobalTime = DISABLE;//Ê±¼ä´Á
+    CanRx.IDE = CAN_ID_STD;		//æ ‡å‡†å¸§æ¨¡å¼
+    CanRx.RTR = CAN_RTR_DATA;	//æ•°æ®å¸§
+    CanRx.StdId = CAN_ID.RX_ID;			//ä½¿ç”¨æ‰©å±•å¸§æ—¶éœ€ç½®é›¶
+    //CanRx.TransmitGlobalTime = DISABLE;//æ—¶é—´æˆ³
 
-    sFilterConfig.FilterActivation = CAN_FILTER_ENABLE;	//É¸Ñ¡Æ÷Ê¹ÄÜ
-    sFilterConfig.FilterBank = 0;						//É¸Ñ¡Æ÷0
-    sFilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;//Ö¸¶¨½«·ÖÅä¸ø¹ıÂËÆ÷µÄFIFO(0»ò1U)
+    sFilterConfig.FilterActivation = CAN_FILTER_ENABLE;	//ç­›é€‰å™¨ä½¿èƒ½
+    sFilterConfig.FilterBank = 0;						//ç­›é€‰å™¨0
+    sFilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;//æŒ‡å®šå°†åˆ†é…ç»™è¿‡æ»¤å™¨çš„FIFO(0æˆ–1U)
 
-//    sFilterConfig.FilterIdHigh = (((CanRx.ExtId<<3) | CAN_ID_EXT | CAN_RTR_DATA)&0xFFFF0000)>>16;	//IDµÄ¸ß16Î»
-//    sFilterConfig.FilterIdLow = ((CanRx.ExtId<<3) | CAN_ID_EXT | CAN_RTR_DATA) & 0xFFFF;	//IDµÄµÍ16Î»£¬Ö»½ÓÊÕÀ©Õ¹Ö¡Ä£Ê½¡¢Êı¾İÖ¡
-//    sFilterConfig.FilterMaskIdHigh = 0xFFFF;//FilterMask¸ßµÍ×Ö½ÚÊı¾İÖĞÎ»Îª1Ê±´ú±í±ØĞëÓëID¸ÃÎ»Ò»ÖÂ£¬0xFFFFFFFF´ú±í½ÓÊÕÉ¸Ñ¡±ØĞëÓëIDÒ»ÖÂ²ÅÍ¨¹ı
+//    sFilterConfig.FilterIdHigh = (((CanRx.ExtId<<3) | CAN_ID_EXT | CAN_RTR_DATA)&0xFFFF0000)>>16;	//IDçš„é«˜16ä½
+//    sFilterConfig.FilterIdLow = ((CanRx.ExtId<<3) | CAN_ID_EXT | CAN_RTR_DATA) & 0xFFFF;	//IDçš„ä½16ä½ï¼Œåªæ¥æ”¶æ‰©å±•å¸§æ¨¡å¼ã€æ•°æ®å¸§
+//    sFilterConfig.FilterMaskIdHigh = 0xFFFF;//FilterMaské«˜ä½å­—èŠ‚æ•°æ®ä¸­ä½ä¸º1æ—¶ä»£è¡¨å¿…é¡»ä¸IDè¯¥ä½ä¸€è‡´ï¼Œ0xFFFFFFFFä»£è¡¨æ¥æ”¶ç­›é€‰å¿…é¡»ä¸IDä¸€è‡´æ‰é€šè¿‡
 //    sFilterConfig.FilterMaskIdLow = 0xFFFF;
 
     sFilterConfig.FilterIdHigh   =(((uint32_t)CanRx.StdId<<21)&0xffff0000)>>16;
@@ -132,14 +138,14 @@ HAL_StatusTypeDef Can_Config(TYPEDEF_CAN_IDs CAN_ID)
     sFilterConfig.FilterMaskIdHigh  = 0xFFFF;
     sFilterConfig.FilterMaskIdLow   = 0xFFFF;
 
-//²»Éè¹ıÂËÆ÷
+//ä¸è®¾è¿‡æ»¤å™¨
 //    sFilterConfig.FilterIdHigh   = 0x0;
 //    sFilterConfig.FilterIdLow    = 0x0;
 //    sFilterConfig.FilterMaskIdHigh  = 0x0;
 //    sFilterConfig.FilterMaskIdLow   = 0x0;
 
-    sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;//ÑÚÂëÄ£Ê½
-    sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;//32Î»
+    sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;//æ©ç æ¨¡å¼
+    sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;//32ä½
     sFilterConfig.SlaveStartFilterBank = 0;
 
     if(HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK)
@@ -147,12 +153,12 @@ HAL_StatusTypeDef Can_Config(TYPEDEF_CAN_IDs CAN_ID)
         return HAL_ERROR;
     }
 
-    if(HAL_CAN_Start(&hcan1) != HAL_OK) //Æô¶¯CAN
+    if(HAL_CAN_Start(&hcan1) != HAL_OK) //å¯åŠ¨CAN
     {
         return HAL_ERROR;
     }
 
-    if(HAL_CAN_ActivateNotification(&hcan1,CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)//¼¤»îCAN_IT_RX_FIFO0_MSG_PENDINGÖĞ¶Ï
+    if(HAL_CAN_ActivateNotification(&hcan1,CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)//æ¿€æ´»CAN_IT_RX_FIFO0_MSG_PENDINGä¸­æ–­
     {
         return HAL_ERROR;
     }
@@ -160,7 +166,7 @@ HAL_StatusTypeDef Can_Config(TYPEDEF_CAN_IDs CAN_ID)
     return HAL_OK;
 }
 
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)//±¨ÎÄ½ÓÊÕÖĞ¶Ï
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)//æŠ¥æ–‡æ¥æ”¶ä¸­æ–­
 {
     if(HAL_CAN_GetRxMessage(hcan, CAN_FILTER_FIFO0, &CanRx, RxData) == HAL_OK)
     {
@@ -170,24 +176,24 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)//±¨ÎÄ½ÓÊÕÖĞ¶Ï
 }
 
 
-void HAL_CAN_RxFifo0FullCallback(CAN_HandleTypeDef *hcan)//µ±½ÓÊÕµÄFifo0ÂúÁËµÄÊ±ºò²úÉú¸ÃÖĞ¶Ï
+void HAL_CAN_RxFifo0FullCallback(CAN_HandleTypeDef *hcan)//å½“æ¥æ”¶çš„Fifo0æ»¡äº†çš„æ—¶å€™äº§ç”Ÿè¯¥ä¸­æ–­
 {
-
+    (void)hcan;
 }
 
 
 
-int map(float val, float I_Min, float I_Max, float O_Min, float O_Max) //Ó³Éäº¯Êı
+int map(float val, float I_Min, float I_Max, float O_Min, float O_Max) //æ˜ å°„å‡½æ•°
 {
     return (int)((((val-I_Min)*((O_Max-O_Min)/(I_Max-I_Min)))+O_Min));
 }
 
 
-TYPEDEF_CAN_IDs Switch_Canid(void)   //¿ª¹Ø¼ì²â
+TYPEDEF_CAN_IDs Switch_Canid(void)   //å¼€å…³æ£€æµ‹
 {
     TYPEDEF_CAN_IDs keys_canid;
-    keys_canid.TX_ID = NULL;
-    keys_canid.RX_ID = NULL;
+    keys_canid.TX_ID = 0;
+    keys_canid.RX_ID = 0;
 
         keys_canid.TX_ID = 0x111;
         keys_canid.RX_ID = 0x112;
@@ -197,10 +203,10 @@ TYPEDEF_CAN_IDs Switch_Canid(void)   //¿ª¹Ø¼ì²â
 
 void countMotorSpeed()
 {
-		// ±àÂëÆ÷ÂÖÑ¯
+		// ç¼–ç å™¨è½®è¯¢
 		motorDir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim1);
-		motorCnt = (uint32_t)(__HAL_TIM_GET_COUNTER(&htim1));//»ñÈ¡¶¨Ê±Æ÷µÄÖµ
-		__HAL_TIM_SET_COUNTER(&htim1, 0);	// ÖÃÁã
+		motorCnt = (uint32_t)(__HAL_TIM_GET_COUNTER(&htim1));//è·å–å®šæ—¶å™¨çš„å€¼
+		__HAL_TIM_SET_COUNTER(&htim1, 0);	// ç½®é›¶
 		if (motorDir == 0) motorSpeed = (long)(motorCnt);
 	  else if (motorCnt == 0) motorSpeed = 0;
 		else motorSpeed = -(long)(65535 - motorCnt);
@@ -231,7 +237,7 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
 
-  /* USER CODE END 1 */
+    /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -259,47 +265,64 @@ int main(void)
   MX_TIM8_Init();
   MX_TIM1_Init();
   MX_TIM4_Init();
+  MX_SPI1_Init();
+  MX_TIM10_Init();
   /* USER CODE BEGIN 2 */
-	// ³õÊ¼»¯pid
+
+    // BMI088åˆå§‹åŒ–ï¼Œå°è¯•å¤šæ¬¡ä»¥åº”å¯¹SPIé€šä¿¡ä¸ç¨³å®š
+//        int retry = 2;
+//        while (retry--) {
+//            if (BMI088_init() == 0) { // å‡è®¾è¿”å›0è¡¨ç¤ºåˆå§‹åŒ–æˆåŠŸ
+//                break;
+//            }
+//            HAL_Delay(10);
+//        }
+//        if (retry < 0) {
+//            Error_Handler(); // åˆå§‹åŒ–å¤±è´¥å¤„ç†
+//        }
+
+    BMI088_init();
+
+    // åˆå§‹åŒ–pid
 	PID_init(&motor_pid,PID_POSITION,PID,755,755);
 	//motor_pid.derivative_output_filter_coefficient = 0.99995;
 	//motor_pid.proportion_output_filter_coefficient = 0.99004;
 	motor_pid.out=0;
 	
-	// ¶¨Ê±Æ÷1 ±àÂëÆ÷Ä£Ê½ch1A ch2B
+	// å®šæ—¶å™¨1 ç¼–ç å™¨æ¨¡å¼ch1A ch2B
 	//HAL_TIM_Base_Start_IT(&htim1);	
 	HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
 	
-	// ¶¨Ê±Æ÷4ÖĞ¶Ï
+	// å®šæ—¶å™¨4ä¸­æ–­
 	HAL_TIM_Base_Start_IT(&htim4);
 	
 	can_filter_init();
 	HAL_UART_Receive_DMA(&huart3,sbus_rx_buffer,18);
 	
-	// ·äÃùÆ÷
+	// èœ‚é¸£å™¨
 		//HAL_TIM_Base_Start_IT(&htim4);
 	//HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
 
-	// ÈıÉ«ledµÆ
+	// ä¸‰è‰²ledç¯
 		//HAL_TIM_Base_Start_IT(&htim5);
 	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_2);
 	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3);
 
-	// ¶æ»úch7 ch8	0 ~ 1999 500 ~ 2500
+	// èˆµæœºch7 ch8	0 ~ 1999 500 ~ 2500
 		//HAL_TIM_Base_Start_IT(&htim8);
 	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2);	// ch7
 	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_3);	// ch8
 	
 	
-	Can_Config(Switch_Canid()); //ÒıÈëcanid²¢³õÊ¼»¯½á¹¹Ìå
+	Can_Config(Switch_Canid()); //å¼•å…¥canidå¹¶åˆå§‹åŒ–ç»“æ„ä½“
 	
 	float psc_tim8_max = 19999.0;
-	
+    (void)psc_tim8_max;
 
-  uint16_t interval_time = 8; //µ÷½ÚÁ¬Ğø·¢°üÆµÂÊµÄ¼ä¸ôÊ±¼ä
+  uint16_t interval_time = 8; //è°ƒèŠ‚è¿ç»­å‘åŒ…é¢‘ç‡çš„é—´éš”æ—¶é—´
 	
-	// Ë«Í¨µÀµç»ú¶æ»ú»ØÖĞ
+	// åŒé€šé“ç”µæœºèˆµæœºå›ä¸­
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, 0);
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_3, 0);
 	HAL_Delay(100);
@@ -324,14 +347,14 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-
+        BMI088_read(gyro, accel, &temp); // è¯»å–é™€èºä»ª åŠ é€Ÿåº¦ æ¸©åº¦
 		
-		HAL_CAN_GetRxMessage(&hcan1,CAN_RX_FIFO0,&CanRx,RxData);   //ÊÔÍ¼ÊÕ°ü
+		HAL_CAN_GetRxMessage(&hcan1,CAN_RX_FIFO0,&CanRx,RxData);   //è¯•å›¾æ”¶åŒ…
 
 
       if(Flag_Rx)
       {
-				// ÁÁµÆ
+				// äº®ç¯
 		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_1, 50000);
 		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_2, 50000);
 		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_3, 50000);
@@ -342,7 +365,7 @@ int main(void)
 
 
 
-          for(int i = 0; i < sizeof TxData; i++) {
+          for(size_t i = 0; i < sizeof TxData; i++) {
               TxData[i] = RxData[i];
           }
 
@@ -358,15 +381,19 @@ int main(void)
 			//__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_3, tim8_ch3_set);
 			
 
-      HAL_CAN_AddTxMessage(&hcan1, &CanTx, TxData, &pTxMailbox); // ·¢°ü
+      HAL_CAN_AddTxMessage(&hcan1, &CanTx, TxData, &pTxMailbox); // å‘åŒ…
 
-      HAL_Delay(interval_time); // µ÷½Ú·¢°üÆµÂÊ
+      HAL_Delay(interval_time); // è°ƒèŠ‚å‘åŒ…é¢‘ç‡
+
+
+
+      HAL_Delay(10);  // å»¶æ—¶10ms
 			
-			// °µµÆ
-		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_1, 500);
-		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_2, 500);
-		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_3, 500);
-		
+			// æš—ç¯
+		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_1, 0);
+		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_2, 0);
+		__HAL_TIM_SetCompare(&htim5, TIM_CHANNEL_3, 0);
+
 
 		
   }
@@ -421,6 +448,8 @@ void SystemClock_Config(void)
 /* USER CODE BEGIN 4 */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *UartHandle)
 {
+    (void)UartHandle;
+
 	  RC_ctrl.rc.ch[0] = (sbus_rx_buffer[0] | (sbus_rx_buffer[1] << 8)) & 0x07ff;        //!< Channel 0
     RC_ctrl.rc.ch[1] = ((sbus_rx_buffer[1] >> 3) | (sbus_rx_buffer[2] << 5)) & 0x07ff; //!< Channel 1
     RC_ctrl.rc.ch[2] = ((sbus_rx_buffer[2] >> 6) | (sbus_rx_buffer[3] << 2) |          //!< Channel 2
